@@ -6,13 +6,15 @@ import logging
 
 
 class BitunixAPI:
-    BASE_URL = "https://api.bitunix.com/openapi"
+    # URL base para Futuros o CopyTrading (puedes ajustarla si Bitunix lo indica distinto)
+    BASE_URL = "https://api.bitunix.com/api/v1"
 
     def __init__(self, api_key: str, secret_key: str):
+        """Inicializa la conexión con la API de Bitunix"""
         self.api_key = api_key
         self.secret_key = secret_key
 
-    def _sign(self, params: dict):
+    def _sign(self, params: dict) -> str:
         """Genera la firma HMAC SHA256 requerida por la API."""
         query = "&".join([f"{k}={v}" for k, v in sorted(params.items())])
         signature = hmac.new(
@@ -22,16 +24,24 @@ class BitunixAPI:
         ).hexdigest()
         return signature
 
-    def place_order(self, symbol: str, side: str, quantity: float):
-        """Crea una orden en Bitunix con manejo de errores y logs claros."""
-        endpoint = f"{self.BASE_URL}/spot/v1/trade/order"
+    def place_order(self, symbol: str, side: str, quantity: float, order_type: str = "MARKET", leverage: int = 1):
+        """
+        Envía una orden a Bitunix (válido para Futuros o CopyTrading).
+        Requiere:
+            symbol    -> Par de trading, ejemplo "LINKUSDT"
+            side      -> "BUY" o "SELL"
+            quantity  -> Cantidad de la orden
+            order_type-> Tipo de orden, por defecto "MARKET"
+            leverage  -> Apalancamiento (por defecto 1x)
+        """
+        endpoint = f"{self.BASE_URL}/order"
 
-        # Parámetros de la orden
         timestamp = int(time.time() * 1000)
         params = {
             "symbol": symbol,
             "side": side,
-            "type": "MARKET",
+            "type": order_type,
+            "leverage": leverage,
             "quantity": quantity,
             "timestamp": timestamp
         }
@@ -46,24 +56,23 @@ class BitunixAPI:
 
         try:
             logging.info(f"🚀 Enviando orden a Bitunix: {params}")
-            response = requests.post(endpoint, headers=headers, json=params, timeout=8)
+            response = requests.post(endpoint, headers=headers, json=params, timeout=10)
 
+            # Log completo de la respuesta
+            logging.info(f"📩 Respuesta completa de Bitunix: {response.text}")
+
+            # Si no responde correctamente
             if response.status_code != 200:
                 logging.error(f"❌ Error HTTP {response.status_code}: {response.text}")
                 return {"error": f"HTTP {response.status_code}", "details": response.text}
 
+            # Devuelve JSON si todo salió bien
             data = response.json()
-
-            # Confirmar si la API respondió correctamente
-            if data.get("code") != 0:
-                logging.error(f"⚠️ Error de Bitunix: {data}")
-                return {"error": "Bitunix API", "details": data}
-
-            logging.info(f"✅ Orden ejecutada correctamente: {data}")
+            logging.info(f"✅ Orden procesada correctamente: {data}")
             return data
 
         except requests.Timeout:
-            logging.error("⚠️ Timeout al conectar con Bitunix (tardó más de 8s)")
+            logging.error("⚠️ Timeout al conectar con Bitunix (más de 10s)")
             return {"error": "timeout"}
 
         except requests.RequestException as e:
@@ -71,5 +80,5 @@ class BitunixAPI:
             return {"error": str(e)}
 
         except Exception as e:
-            logging.error(f"💥 Excepción inesperada: {e}")
+            logging.error(f"💥 Error inesperado: {e}")
             return {"error": str(e)}
