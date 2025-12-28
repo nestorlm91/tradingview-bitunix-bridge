@@ -6,8 +6,8 @@ import logging
 
 
 class BitunixAPI:
-    # 🔹 Endpoint para CopyTrading (LeaderTrader API)
-    BASE_URL = "https://contract.m.bitunix.com/api/v1/private"
+    # 🔹 Endpoint para CopyTrading (válido para cuentas Leader Trader)
+    BASE_URL = "https://copytradeapi.bitunix.com/api/v1/private"
 
     def __init__(self, api_key: str, secret_key: str):
         """Inicializa la conexión con la API de CopyTrading de Bitunix"""
@@ -46,7 +46,7 @@ class BitunixAPI:
             "timestamp": timestamp
         }
 
-        # Firma
+        # Firma HMAC
         params["signature"] = self._sign(params)
 
         headers = {
