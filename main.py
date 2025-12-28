@@ -1,63 +1,55 @@
-from fastapi import FastAPI, Request, HTTPException
 import logging
-import os
 import traceback
+from fastapi import FastAPI, Request, HTTPException
 from bitunix_client import BitunixAPI
-from config import settings
+import os
 
-# Configurar logs
+# ===============================
+# CONFIGURACIÓN BÁSICA DEL LOG
+# ===============================
 logging.basicConfig(
-    filename=f"logs/webhook_{os.path.basename(__file__)}.log",
     level=logging.INFO,
-    format="%(asctime)s - %(levelname)s - %(message)s",
+    format="%(asctime)s [%(levelname)s] %(message)s"
 )
 
-app = FastAPI(title="TradingView → Bitunix Bridge")
+# ===============================
+# CONFIGURACIÓN GLOBAL
+# ===============================
+BITUNIX_API_KEY = os.getenv("BITUNIX_API_KEY")
+BITUNIX_SECRET_KEY = os.getenv("BITUNIX_SECRET_KEY")
+SECURITY_TOKEN = os.getenv("WEBHOOK_TOKEN", "abc123token")  # Token de seguridad para TradingView
 
-# Inicializar cliente Bitunix
-bitunix = BitunixAPI(
-    api_key=settings.BITUNIX_API_KEY,
-    secret_key=settings.BITUNIX_SECRET_KEY
-)
+bitunix = BitunixAPI(BITUNIX_API_KEY, BITUNIX_SECRET_KEY)
+app = FastAPI(title="TradingView ↔ Bitunix Bridge")
 
-
+# ===============================
+# RUTA PRINCIPAL PARA TRADINGVIEW
+# ===============================
 @app.post("/webhook")
 async def tradingview_webhook(request: Request):
-    """
-    Endpoint que recibe alertas de TradingView y ejecuta órdenes en Bitunix.
-    """
     try:
         data = await request.json()
         logging.info(f"📩 Webhook recibido: {data}")
 
-        # Extraer datos del mensaje
-        token = data.get("token", "").strip()
-        symbol = data.get("symbol", "").strip()
-        side = data.get("side", "").upper().strip()
-        quantity = float(data.get("quantity", 0))
-
-        # Validar token directamente desde variables de entorno
-        expected_token = os.getenv("SECURITY_TOKEN")
-        logging.info(f"🧩 Token recibido: {token}, Token esperado: {expected_token}")
-
-        if not expected_token:
-            logging.error("⚠️ SECURITY_TOKEN no configurado en Render")
-            raise HTTPException(status_code=500, detail="Token no configurado en el servidor")
-
-        if token != expected_token:
-            logging.warning("🚫 Token inválido o no coincide con el configurado en Render")
+        # === Validar token ===
+        token = data.get("token")
+        if token != SECURITY_TOKEN:
+            logging.warning("🚫 Token inválido recibido")
             raise HTTPException(status_code=403, detail="Token inválido")
 
-        # Validar campos requeridos
+        # === Extraer datos de la alerta ===
+        symbol = data.get("symbol")
+        side = data.get("side", "").upper()
+        quantity = float(data.get("quantity", 0))
+
+        # Validar datos
         if not all([symbol, side, quantity]):
-            logging.warning("⚠️ Datos incompletos en el webhook")
-            raise HTTPException(status_code=400, detail="Datos incompletos")
+            raise HTTPException(status_code=400, detail="Datos incompletos en la alerta")
 
-        # Enviar orden a Bitunix
-        logging.info(f"🚀 Enviando orden a Bitunix: {side} {quantity} {symbol}")
+        # === Enviar orden a Bitunix ===
         result = bitunix.place_order(symbol, side, quantity)
-
         logging.info(f"✅ Orden enviada a Bitunix: {result}")
+
         return {"status": "success", "details": result}
 
     except HTTPException as e:
@@ -70,6 +62,9 @@ async def tradingview_webhook(request: Request):
         return {"status": "error", "message": str(e), "trace": error_info}
 
 
+# ===============================
+# RUTA DE PRUEBA
+# ===============================
 @app.get("/")
-def root():
-    return {"message": "🚀 TradingView → Bitunix Bridge activo y listo."}
+async def root():
+    return {"message": "🚀 Bitunix Bridge funcionando correctamente"}
