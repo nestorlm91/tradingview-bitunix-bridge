@@ -6,11 +6,11 @@ import logging
 
 
 class BitunixAPI:
-    # URL base para Futuros o CopyTrading (puedes ajustarla si Bitunix lo indica distinto)
-    BASE_URL = "https://api.bitunix.com/api/v1"
+    # 🔹 Endpoint para CopyTrading (LeaderTrader API)
+    BASE_URL = "https://contract.m.bitunix.com/api/v1/private"
 
     def __init__(self, api_key: str, secret_key: str):
-        """Inicializa la conexión con la API de Bitunix"""
+        """Inicializa la conexión con la API de CopyTrading de Bitunix"""
         self.api_key = api_key
         self.secret_key = secret_key
 
@@ -26,7 +26,7 @@ class BitunixAPI:
 
     def place_order(self, symbol: str, side: str, quantity: float, order_type: str = "MARKET", leverage: int = 1):
         """
-        Envía una orden a Bitunix (válido para Futuros o CopyTrading).
+        Envía una orden a Bitunix CopyTrading.
         Requiere:
             symbol    -> Par de trading, ejemplo "LINKUSDT"
             side      -> "BUY" o "SELL"
@@ -55,24 +55,21 @@ class BitunixAPI:
         }
 
         try:
-            logging.info(f"🚀 Enviando orden a Bitunix: {params}")
+            logging.info(f"🚀 Enviando orden CopyTrading: {params}")
             response = requests.post(endpoint, headers=headers, json=params, timeout=10)
 
-            # Log completo de la respuesta
-            logging.info(f"📩 Respuesta completa de Bitunix: {response.text}")
+            logging.info(f"📩 Respuesta completa de Bitunix CopyTrading: {response.text}")
 
-            # Si no responde correctamente
             if response.status_code != 200:
                 logging.error(f"❌ Error HTTP {response.status_code}: {response.text}")
                 return {"error": f"HTTP {response.status_code}", "details": response.text}
 
-            # Devuelve JSON si todo salió bien
             data = response.json()
-            logging.info(f"✅ Orden procesada correctamente: {data}")
+            logging.info(f"✅ Orden CopyTrading procesada correctamente: {data}")
             return data
 
         except requests.Timeout:
-            logging.error("⚠️ Timeout al conectar con Bitunix (más de 10s)")
+            logging.error("⚠️ Timeout al conectar con Bitunix CopyTrading")
             return {"error": "timeout"}
 
         except requests.RequestException as e:
