@@ -1,51 +1,69 @@
-from fastapi import FastAPI, Request, HTTPException
-from bitunix_client import BitunixAPI
-from config import settings
+import time
+import hmac
+import hashlib
+import requests
 import logging
-from datetime import datetime
-from collections import deque
 
-logging.basicConfig(
-    filename=f"logs/trades_{datetime.now().date()}.log",
-    level=logging.INFO,
-    format="%(asctime)s - %(levelname)s - %(message)s"
-)
 
-app = FastAPI(title="TradingView → Bitunix Bridge")
+class BitunixAPI:
+    BASE_URL = "https://api.bitunix.com/api/v1"
 
-bitunix = BitunixAPI(settings.BITUNIX_API_KEY, settings.BITUNIX_SECRET_KEY)
+    def __init__(self, api_key: str, secret_key: str):
+        self.api_key = api_key
+        self.secret_key = secret_key
 
-# 🧠 Memoria temporal para evitar duplicados
-recent_alerts = deque(maxlen=20)
+    def _sign(self, params: dict):
+        """Genera la firma HMAC SHA256 requerida por la API."""
+        query = "&".join([f"{k}={v}" for k, v in sorted(params.items())])
+        signature = hmac.new(
+            self.secret_key.encode(),
+            query.encode(),
+            hashlib.sha256
+        ).hexdigest()
+        return signature
 
-@app.post("/webhook")
-async def tradingview_webhook(request: Request):
-    try:
-        data = await request.json()
-        token = data.get("token")
+    def place_order(self, symbol: str, side: str, quantity: float):
+        """Crea una orden en Bitunix con manejo de errores y timeout."""
+        endpoint = f"{self.BASE_URL}/order"
 
-        if token != settings.SECURITY_TOKEN:
-            raise HTTPException(status_code=403, detail="Token inválido")
+        # Parámetros de la orden
+        timestamp = int(time.time() * 1000)
+        params = {
+            "symbol": symbol,
+            "side": side,
+            "quantity": quantity,
+            "timestamp": timestamp
+        }
 
-        symbol = data.get("symbol")
-        side = data.get("side").upper()
-        quantity = float(data.get("quantity", 0))
-        alert_id = data.get("alert_id") or f"{symbol}-{side}-{quantity}"
+        # Firma
+        params["signature"] = self._sign(params)
 
-        # ⚠️ Evita procesar la misma alerta más de una vez
-        if alert_id in recent_alerts:
-            logging.warning(f"⚠️ Alerta duplicada ignorada: {alert_id}")
-            return {"status": "ignored", "reason": "duplicate"}
+        headers = {
+            "X-API-KEY": self.api_key,
+            "Content-Type": "application/json"
+        }
 
-        recent_alerts.append(alert_id)
+        try:
+            logging.info(f"🚀 Enviando orden a Bitunix: {params}")
+            response = requests.post(endpoint, headers=headers, json=params, timeout=5)
 
-        logging.info(f"📩 Señal recibida: {symbol} {side} {quantity} (ID: {alert_id})")
+            # Si la API no responde correctamente
+            if response.status_code != 200:
+                logging.error(f"❌ Error HTTP {response.status_code}: {response.text}")
+                return {"error": f"HTTP {response.status_code}", "details": response.text}
 
-        result = bitunix.place_order(symbol=symbol, side=side, quantity=quantity)
+            data = response.json()
+            logging.info(f"✅ Respuesta Bitunix: {data}")
+            return data
 
-        logging.info(f"✅ Orden enviada a Bitunix: {result}")
-        return {"status": "success", "details": result}
+        except requests.Timeout:
+            logging.error("⚠️ Timeout al conectar con Bitunix (tardó más de 5s)")
+            return {"error": "timeout"}
 
-    except Exception as e:
-        logging.error(f"❌ Error procesando webhook: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+        except requests.RequestException as e:
+            logging.error(f"❌ Error de conexión: {e}")
+            return {"error": str(e)}
+
+        except Exception as e:
+            logging.error(f"❌ Excepción inesperada: {e}")
+            return {"error": str(e)}
