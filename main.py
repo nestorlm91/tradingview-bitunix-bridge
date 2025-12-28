@@ -37,7 +37,7 @@ async def tradingview_webhook(request: Request):
         logging.info(f"✅ Orden enviada a Bitunix: {result}")
         return {"status": "success", "details": result}
 
-        except Exception as e:
+      except Exception as e:
         import traceback
         error_info = traceback.format_exc()
         logging.error(f"❌ Error procesando webhook:\n{error_info}")
