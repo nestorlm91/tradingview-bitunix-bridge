@@ -7,45 +7,74 @@ import uuid
 import logging
 import os
 
+# ==========================
 # Configuración de logs
+# ==========================
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
-logger = logging.getLogger(__name__)
 
-# Claves del entorno
+# ==========================
+# Claves desde variables de entorno
+# ==========================
 BITUNIX_API_KEY = os.getenv("BITUNIX_API_KEY")
 BITUNIX_SECRET_KEY = os.getenv("BITUNIX_SECRET_KEY")
 
+# Endpoint de Bitunix Futures
 BASE_URL = "https://fapi.bitunix.com/api/v1/futures/trade/place_order"
 
 
+# ==========================
+# Función de firma oficial Bitunix
+# ==========================
 def generate_signature(api_key, secret_key, body):
-    """Genera la firma HMAC SHA256 según la documentación oficial de Bitunix."""
+    """
+    Genera la firma de acuerdo con el formato oficial de Bitunix:
+    nonce + timestamp + api_key + body_json (minificado)
+    Luego aplica doble SHA256: primero al mensaje y luego al resultado + secret_key
+    """
+    # Nonce aleatorio de 32 caracteres
     nonce = str(uuid.uuid4()).replace("-", "")
+
+    # Timestamp en milisegundos (UTC)
     timestamp = str(int(time.time() * 1000))
-    message = api_key + timestamp + nonce + body
-    signature = hmac.new(secret_key.encode(), message.encode(), hashlib.sha256).hexdigest()
-    return signature, nonce, timestamp
+
+    # Convertir body a JSON minificado
+    if isinstance(body, dict):
+        body_str = json.dumps(body, separators=(',', ':'))
+    else:
+        body_str = body.strip()
+
+    # Concatenación exacta según documentación
+    message = f"{nonce}{timestamp}{api_key}{body_str}"
+
+    # Primer hash SHA256
+    first_hash = hashlib.sha256(message.encode('utf-8')).hexdigest()
+
+    # Segundo hash con secret key
+    final_sign = hashlib.sha256((first_hash + secret_key).encode('utf-8')).hexdigest()
+
+    return final_sign, nonce, timestamp
 
 
+# ==========================
+# Función para enviar una orden
+# ==========================
 def place_order(symbol, side, quantity, order_type="MARKET", trade_side="OPEN"):
-    """Envía una orden a Bitunix (futuros)."""
-
-    # ✅ Corrige el símbolo (elimina .P de TradingView)
-    symbol = symbol.replace(".P", "").upper()
-
-    # ✅ Convierte cantidad a string y formato correcto
-    qty = str(float(quantity))
-
+    """
+    Envía una orden al endpoint de Bitunix Futures
+    """
     body_dict = {
         "symbol": symbol,
         "side": side,              # BUY o SELL
         "tradeSide": trade_side,   # OPEN o CLOSE
         "orderType": order_type,   # MARKET o LIMIT
-        "qty": qty,
+        "qty": str(quantity),      # En formato string (Bitunix lo requiere)
         "reduceOnly": False
     }
 
-    body = json.dumps(body_dict)
+    # Convertir body a JSON
+    body = json.dumps(body_dict, separators=(',', ':'))
+
+    # Generar firma
     sign, nonce, timestamp = generate_signature(BITUNIX_API_KEY, BITUNIX_SECRET_KEY, body)
 
     headers = {
@@ -56,19 +85,30 @@ def place_order(symbol, side, quantity, order_type="MARKET", trade_side="OPEN"):
         "Content-Type": "application/json"
     }
 
-    logger.info(f"📤 Enviando orden a Bitunix: {body_dict}")
+    # ==========================
+    # Logs de depuración (clave para diagnosticar)
+    # ==========================
+    logging.info("🚀 Enviando orden a Bitunix...")
+    logging.info(f"URL: {BASE_URL}")
+    logging.info(f"Headers enviados: {headers}")
+    logging.info(f"Body enviado: {body}")
 
+    # ==========================
+    # Envío de la solicitud
+    # ==========================
     try:
         response = requests.post(BASE_URL, headers=headers, data=body)
         data = response.json()
-        logger.info(f"✅ Respuesta de Bitunix: {data}")
+        logging.info(f"✅ Respuesta de Bitunix: {data}")
         return data
     except Exception as e:
-        logger.error(f"❌ Error al enviar orden: {e}")
+        logging.error(f"❌ Error al enviar orden: {e}")
         return None
 
 
+# ==========================
+# Ejecución directa de prueba
+# ==========================
 if __name__ == "__main__":
-    # Ejemplo rápido de prueba manual
-    result = place_order("LINKUSDT.P", "BUY", 5)
-    print(result)
+    logging.info("🧪 Prueba local de orden de mercado...")
+    result = place_order("LINKUSDT", "
