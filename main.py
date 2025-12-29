@@ -1,40 +1,37 @@
 from flask import Flask, request, jsonify
 import logging
-from bitunix_client import place_order
+from bitunix_client import place_order  # ✅ Importa la nueva función, no la clase
 
 app = Flask(__name__)
-logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] ✅ %(message)s")
-
-SECURITY_TOKEN = "abc123token"  # Debe coincidir con el que usas en TradingView
-
-@app.route("/", methods=["GET"])
-def home():
-    return "🚀 Bitunix TradingView Bridge activo y funcionando."
+logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
 
 @app.route("/webhook", methods=["POST"])
 def webhook():
     try:
-        data = request.get_json(force=True)
+        data = request.get_json()
         logging.info(f"📩 Webhook recibido: {data}")
-
-        if data.get("token") != SECURITY_TOKEN:
-            return jsonify({"error": "Token inválido"}), 403
 
         symbol = data.get("symbol")
         side = data.get("side")
-        quantity = float(data.get("quantity", 0))
-        trade_side = data.get("tradeSide", "OPEN")  # valor por defecto
+        quantity = data.get("quantity", 0.1)
+        trade_side = data.get("tradeSide", "OPEN")
 
-        if not all([symbol, side, quantity]):
-            return jsonify({"error": "Faltan campos obligatorios"}), 400
+        if not symbol or not side:
+            return jsonify({"error": "symbol y side son requeridos"}), 400
 
-        result = place_order(symbol, side, trade_side, quantity)
-        return jsonify(result)
+        result = place_order(symbol, side, quantity, "MARKET", trade_side)
+        logging.info(f"✅ Respuesta de Bitunix: {result}")
+
+        return jsonify(result), 200
 
     except Exception as e:
         logging.error(f"❌ Error en webhook: {e}")
         return jsonify({"error": str(e)}), 500
 
 
+@app.route("/", methods=["GET"])
+def home():
+    return "✅ Bridge entre TradingView y Bitunix funcionando correctamente"
+
+
 if __name__ == "__main__":
-    app.run(host="0.0.0.0", port=10000)
