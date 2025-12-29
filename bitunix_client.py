@@ -1,60 +1,74 @@
-import os
+import requests
 import time
 import hmac
 import hashlib
 import json
-import requests
+import uuid
 import logging
+import os
 
-# Configurar logging
-logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] ✅ %(message)s")
+# Configuración de logs
+logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
+logger = logging.getLogger(__name__)
 
+# Claves del entorno
 BITUNIX_API_KEY = os.getenv("BITUNIX_API_KEY")
 BITUNIX_SECRET_KEY = os.getenv("BITUNIX_SECRET_KEY")
 
-BASE_URL = "https://fapi.bitunix.com"
+BASE_URL = "https://fapi.bitunix.com/api/v1/futures/trade/place_order"
 
-def generate_signature(secret, method, path, body, timestamp, nonce):
-    """Genera la firma HMAC-SHA256 según la documentación oficial de Bitunix."""
-    payload = f"{method}{path}{timestamp}{nonce}{body}"
-    return hmac.new(secret.encode(), payload.encode(), hashlib.sha256).hexdigest()
 
-def place_order(symbol, side, trade_side, quantity):
-    """Envía una orden a Bitunix con firma y headers correctos."""
+def generate_signature(api_key, secret_key, body):
+    """Genera la firma HMAC SHA256 según la documentación oficial de Bitunix."""
+    nonce = str(uuid.uuid4()).replace("-", "")
+    timestamp = str(int(time.time() * 1000))
+    message = api_key + timestamp + nonce + body
+    signature = hmac.new(secret_key.encode(), message.encode(), hashlib.sha256).hexdigest()
+    return signature, nonce, timestamp
+
+
+def place_order(symbol, side, quantity, order_type="MARKET", trade_side="OPEN"):
+    """Envía una orden a Bitunix (futuros)."""
+
+    # ✅ Corrige el símbolo (elimina .P de TradingView)
+    symbol = symbol.replace(".P", "").upper()
+
+    # ✅ Convierte cantidad a string y formato correcto
+    qty = str(float(quantity))
+
+    body_dict = {
+        "symbol": symbol,
+        "side": side,              # BUY o SELL
+        "tradeSide": trade_side,   # OPEN o CLOSE
+        "orderType": order_type,   # MARKET o LIMIT
+        "qty": qty,
+        "reduceOnly": False
+    }
+
+    body = json.dumps(body_dict)
+    sign, nonce, timestamp = generate_signature(BITUNIX_API_KEY, BITUNIX_SECRET_KEY, body)
+
+    headers = {
+        "api-key": BITUNIX_API_KEY,
+        "sign": sign,
+        "nonce": nonce,
+        "timestamp": timestamp,
+        "Content-Type": "application/json"
+    }
+
+    logger.info(f"📤 Enviando orden a Bitunix: {body_dict}")
+
     try:
-        timestamp = str(int(time.time() * 1000))
-        nonce = hashlib.md5(timestamp.encode()).hexdigest()
-
-        endpoint = "/api/v1/private/order/create"
-        url = BASE_URL + endpoint
-
-        body_dict = {
-            "symbol": symbol,
-            "side": side,
-            "tradeSide": trade_side,
-            "type": "MARKET",
-            "quantity": quantity
-        }
-        body = json.dumps(body_dict, separators=(",", ":"))
-
-        signature = generate_signature(
-            BITUNIX_SECRET_KEY, "POST", endpoint, body, timestamp, nonce
-        )
-
-        headers = {
-            "api-key": BITUNIX_API_KEY,
-            "timestamp": timestamp,
-            "nonce": nonce,
-            "sign": signature,
-            "Content-Type": "application/json"
-        }
-
-        response = requests.post(url, headers=headers, data=body)
-        result = response.json()
-        logging.info(f"✅ Respuesta de Bitunix: {result}")
-
-        return result
-
+        response = requests.post(BASE_URL, headers=headers, data=body)
+        data = response.json()
+        logger.info(f"✅ Respuesta de Bitunix: {data}")
+        return data
     except Exception as e:
-        logging.error(f"❌ Error al enviar la orden a Bitunix: {e}")
-        return {"error": str(e)}
+        logger.error(f"❌ Error al enviar orden: {e}")
+        return None
+
+
+if __name__ == "__main__":
+    # Ejemplo rápido de prueba manual
+    result = place_order("LINKUSDT.P", "BUY", 5)
+    print(result)
