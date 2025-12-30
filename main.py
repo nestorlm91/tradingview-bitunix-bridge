@@ -4,18 +4,31 @@ import logging
 import json
 from bitunix_client import place_order
 
+# Crear la aplicación
 app = FastAPI()
 
-# Configuración de logs
+# Configurar logs
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
 
-# Token de seguridad
+# Token de seguridad (debe coincidir con el usado en TradingView)
 WEBHOOK_TOKEN = "abc123token"
+
+
+@app.get("/")
+async def root():
+    """
+    Endpoint base para verificar el estado del servidor.
+    """
+    return JSONResponse(content={
+        "status": "online",
+        "message": "🚀 Webhook Bitunix Bridge activo y listo para recibir órdenes"
+    })
+
 
 @app.post("/webhook")
 async def webhook_listener(request: Request):
     """
-    Recibe alertas de TradingView y envía órdenes a Bitunix
+    Recibe alertas desde TradingView y ejecuta órdenes en Bitunix.
     """
     try:
         body = await request.json()
@@ -27,7 +40,7 @@ async def webhook_listener(request: Request):
             logging.warning("🚫 Token inválido recibido.")
             return JSONResponse(status_code=403, content={"error": "Token inválido"})
 
-        # Parámetros
+        # Parámetros requeridos
         symbol = body.get("symbol")
         side = body.get("side")
         quantity = body.get("quantity", "1")
@@ -37,7 +50,7 @@ async def webhook_listener(request: Request):
         if not symbol or not side:
             return JSONResponse(status_code=400, content={"error": "Faltan parámetros obligatorios"})
 
-        # Enviar orden
+        # Enviar orden a Bitunix
         logging.info(f"🚀 Enviando orden: {symbol} | {side} | {trade_side} | {order_type} | qty={quantity}")
         result = place_order(symbol, side, quantity, order_type, trade_side)
 
@@ -47,14 +60,3 @@ async def webhook_listener(request: Request):
     except Exception as e:
         logging.exception("❌ Error al procesar el webhook")
         return JSONResponse(status_code=500, content={"error": str(e)})
-
-
-@app.get("/")
-async def root():
-    """
-    Endpoint base (Render lo usa para confirmar que el servicio está activo)
-    """
-    return JSONResponse(content={
-        "status": "online",
-        "message": "🚀 Webhook Bitunix Bridge funcionando correctamente"
-    })
