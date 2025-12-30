@@ -1,64 +1,51 @@
-from fastapi import FastAPI, Request, HTTPException
-from bitunix_client import place_order
+from fastapi import FastAPI, Request
+from fastapi.responses import JSONResponse
 import logging
-from datetime import datetime
+import json
+import os
+from bitunix_client import place_order
 
-# Configuración de logs
-logging.basicConfig(
-    filename=f"logs/trades_{datetime.now().date()}.log",
-    level=logging.INFO,
-    format="%(asctime)s - %(levelname)s - %(message)s"
-)
+app = FastAPI()
 
-app = FastAPI(title="TradingView → Bitunix Bridge")
+logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
 
-SECURITY_TOKEN = "secreto123"
-
-# Mantener estado actual
-current_position = None  # Puede ser "LONG", "SHORT" o None
-
+# Token de seguridad (debe coincidir con el que envías desde TradingView)
+WEBHOOK_TOKEN = "abc123token"
 
 @app.post("/webhook")
-async def tradingview_webhook(request: Request):
-    global current_position
+async def webhook_listener(request: Request):
     try:
-        data = await request.json()
-        token = data.get("token")
+        body = await request.json()
+        logging.info(f"📩 Señal recibida: {body}")
 
-        if token != SECURITY_TOKEN:
-            raise HTTPException(status_code=403, detail="Token inválido")
+        token = body.get("token")
+        if token != WEBHOOK_TOKEN:
+            logging.warning("🚫 Token inválido recibido.")
+            return JSONResponse(status_code=403, content={"error": "Token inválido"})
 
-        symbol = data.get("symbol", "LINKUSDT")
-        side = data.get("side", "").upper()
+        symbol = body.get("symbol")
+        side = body.get("side")
+        quantity = body.get("quantity", "1")
+        trade_side = body.get("tradeSide", "OPEN")
+        order_type = body.get("orderType", "MARKET")
 
-        if side not in ["BUY", "SELL", "CLOSE"]:
-            raise HTTPException(status_code=400, detail="Dirección no válida")
+        if not symbol or not side:
+            return JSONResponse(status_code=400, content={"error": "Faltan parámetros obligatorios"})
 
-        logging.info(f"📩 Señal recibida: {symbol} → {side}")
+        logging.info(f"🚀 Enviando orden: {symbol} | {side} | {trade_side} | {order_type} | qty={quantity}")
+        result = place_order(symbol, side, quantity, order_type, trade_side)
 
-        # Lógica para abrir o cerrar operaciones
-        if side == "BUY":
-            if current_position == "SHORT":
-                place_order(symbol, "BUY", "CLOSE")
-            place_order(symbol, "BUY", "OPEN")
-            current_position = "LONG"
+        if not result:
+            return JSONResponse(status_code=500, content={"error": "No se pudo enviar la orden a Bitunix"})
 
-        elif side == "SELL":
-            if current_position == "LONG":
-                place_order(symbol, "SELL", "CLOSE")
-            place_order(symbol, "SELL", "OPEN")
-            current_position = "SHORT"
-
-        elif side == "CLOSE":
-            if current_position == "LONG":
-                place_order(symbol, "SELL", "CLOSE")
-            elif current_position == "SHORT":
-                place_order(symbol, "BUY", "CLOSE")
-            current_position = None
-
-        logging.info(f"✅ Nueva posición: {current_position}")
-        return {"status": "success", "position": current_position}
+        logging.info(f"✅ Resultado Bitunix: {result}")
+        return JSONResponse(status_code=200, content={"status": "ok", "bitunix_response": result})
 
     except Exception as e:
-        logging.error(f"❌ Error procesando webhook: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+        logging.exception("❌ Error al procesar el webhook")
+        return JSONResponse(status_code=500, content={"error": str(e)})
+
+
+@app.get("/")
+async def root():
+    return {"message": "🚀 Webhook Bitunix Bridge activo"}
