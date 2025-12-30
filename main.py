@@ -1,34 +1,31 @@
 from fastapi import FastAPI, Request
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, PlainTextResponse
 import logging
 import json
 from bitunix_client import place_order
 
-# Crear la aplicación
+# Crear instancia FastAPI
 app = FastAPI()
 
 # Configurar logs
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
 
-# Token de seguridad (debe coincidir con el usado en TradingView)
+# Token de seguridad
 WEBHOOK_TOKEN = "abc123token"
-
 
 @app.get("/")
 async def root():
     """
-    Endpoint base para verificar el estado del servidor.
+    Endpoint raíz: usado por Render para verificar que el servicio está activo.
     """
-    return JSONResponse(content={
-        "status": "online",
-        "message": "🚀 Webhook Bitunix Bridge activo y listo para recibir órdenes"
-    })
+    logging.info("🟢 Health check recibido en /")
+    return PlainTextResponse("Service is online 🚀")
 
 
 @app.post("/webhook")
 async def webhook_listener(request: Request):
     """
-    Recibe alertas desde TradingView y ejecuta órdenes en Bitunix.
+    Recibe alertas de TradingView y ejecuta órdenes en Bitunix.
     """
     try:
         body = await request.json()
@@ -40,7 +37,7 @@ async def webhook_listener(request: Request):
             logging.warning("🚫 Token inválido recibido.")
             return JSONResponse(status_code=403, content={"error": "Token inválido"})
 
-        # Parámetros requeridos
+        # Parámetros
         symbol = body.get("symbol")
         side = body.get("side")
         quantity = body.get("quantity", "1")
@@ -50,7 +47,7 @@ async def webhook_listener(request: Request):
         if not symbol or not side:
             return JSONResponse(status_code=400, content={"error": "Faltan parámetros obligatorios"})
 
-        # Enviar orden a Bitunix
+        # Enviar orden
         logging.info(f"🚀 Enviando orden: {symbol} | {side} | {trade_side} | {order_type} | qty={quantity}")
         result = place_order(symbol, side, quantity, order_type, trade_side)
 
