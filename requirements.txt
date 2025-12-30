@@ -1,9 +1,4 @@
-# Dependencias principales
-flask==3.0.2
-requests==2.31.0
-
-# Dependencias opcionales (pero recomendadas para entornos Render)
-gunicorn==21.2.0  # Servidor de producción para Flask
-python-dotenv==1.0.1  # Para manejar variables de entorno .env si lo usas localmente
-
-# (Puedes agregar otras si en el futuro amplías el bot)
+fastapi
+uvicorn
+requests
+python-dotenv
