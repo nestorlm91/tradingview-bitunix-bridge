@@ -4,19 +4,18 @@ import logging
 import json
 from bitunix_client import place_order
 
-# Crear app FastAPI
 app = FastAPI()
 
-# Configurar logs
+# Configuración de logs
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
 
-# Token de seguridad del webhook
+# Token de seguridad
 WEBHOOK_TOKEN = "abc123token"
 
 @app.post("/webhook")
 async def webhook_listener(request: Request):
     """
-    Endpoint principal para recibir alertas desde TradingView
+    Recibe alertas de TradingView y envía órdenes a Bitunix
     """
     try:
         body = await request.json()
@@ -28,7 +27,7 @@ async def webhook_listener(request: Request):
             logging.warning("🚫 Token inválido recibido.")
             return JSONResponse(status_code=403, content={"error": "Token inválido"})
 
-        # Obtener parámetros
+        # Parámetros
         symbol = body.get("symbol")
         side = body.get("side")
         quantity = body.get("quantity", "1")
@@ -38,7 +37,7 @@ async def webhook_listener(request: Request):
         if not symbol or not side:
             return JSONResponse(status_code=400, content={"error": "Faltan parámetros obligatorios"})
 
-        # Enviar orden a Bitunix
+        # Enviar orden
         logging.info(f"🚀 Enviando orden: {symbol} | {side} | {trade_side} | {order_type} | qty={quantity}")
         result = place_order(symbol, side, quantity, order_type, trade_side)
 
@@ -49,9 +48,13 @@ async def webhook_listener(request: Request):
         logging.exception("❌ Error al procesar el webhook")
         return JSONResponse(status_code=500, content={"error": str(e)})
 
+
 @app.get("/")
 async def root():
     """
-    Endpoint base para confirmar que el servidor está activo
+    Endpoint base (Render lo usa para confirmar que el servicio está activo)
     """
-    return {"status": "online", "message": "🚀 Webhook Bitunix Bridge operativo y listo para recibir señales"}
+    return JSONResponse(content={
+        "status": "online",
+        "message": "🚀 Webhook Bitunix Bridge funcionando correctamente"
+    })
