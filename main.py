@@ -2,14 +2,12 @@ from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse
 import logging
 import json
-import os
 from bitunix_client import place_order
 
 app = FastAPI()
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
 
-# Token de seguridad (debe coincidir con el que envías desde TradingView)
 WEBHOOK_TOKEN = "abc123token"
 
 @app.post("/webhook")
@@ -35,16 +33,12 @@ async def webhook_listener(request: Request):
         logging.info(f"🚀 Enviando orden: {symbol} | {side} | {trade_side} | {order_type} | qty={quantity}")
         result = place_order(symbol, side, quantity, order_type, trade_side)
 
-        if not result:
-            return JSONResponse(status_code=500, content={"error": "No se pudo enviar la orden a Bitunix"})
-
         logging.info(f"✅ Resultado Bitunix: {result}")
         return JSONResponse(status_code=200, content={"status": "ok", "bitunix_response": result})
 
     except Exception as e:
         logging.exception("❌ Error al procesar el webhook")
         return JSONResponse(status_code=500, content={"error": str(e)})
-
 
 @app.get("/")
 async def root():
