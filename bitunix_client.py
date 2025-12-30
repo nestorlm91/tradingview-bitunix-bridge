@@ -21,60 +21,81 @@ BITUNIX_SECRET_KEY = os.getenv("BITUNIX_SECRET_KEY")
 # Endpoint de Bitunix Futures
 BASE_URL = "https://fapi.bitunix.com/api/v1/futures/trade/place_order"
 
+# Endpoint para obtener balance
+BALANCE_URL = "https://fapi.bitunix.com/api/v1/futures/account/balance"
+
 
 # ==========================
-# Función de firma oficial Bitunix
+# Firma según documentación oficial
 # ==========================
 def generate_signature(api_key, secret_key, body):
-    """
-    Genera la firma de acuerdo con el formato oficial de Bitunix:
-    nonce + timestamp + api_key + body_json (minificado)
-    Luego aplica doble SHA256: primero al mensaje y luego al resultado + secret_key
-    """
-    # Nonce aleatorio de 32 caracteres
     nonce = str(uuid.uuid4()).replace("-", "")
-
-    # Timestamp en milisegundos (UTC)
     timestamp = str(int(time.time() * 1000))
 
-    # Convertir body a JSON minificado
     if isinstance(body, dict):
         body_str = json.dumps(body, separators=(',', ':'))
     else:
         body_str = body.strip()
 
-    # Concatenación exacta según documentación
     message = f"{nonce}{timestamp}{api_key}{body_str}"
-
-    # Primer hash SHA256
     first_hash = hashlib.sha256(message.encode('utf-8')).hexdigest()
-
-    # Segundo hash con secret key
     final_sign = hashlib.sha256((first_hash + secret_key).encode('utf-8')).hexdigest()
 
     return final_sign, nonce, timestamp
 
 
 # ==========================
-# Función para enviar una orden
+# Obtener balance disponible (en USDT)
 # ==========================
-def place_order(symbol, side, quantity, order_type="MARKET", trade_side="OPEN"):
-    """
-    Envía una orden al endpoint de Bitunix Futures
-    """
+def get_balance():
+    """Obtiene el balance disponible en USDT"""
+    body = "{}"
+    sign, nonce, timestamp = generate_signature(BITUNIX_API_KEY, BITUNIX_SECRET_KEY, body)
+    headers = {
+        "api-key": BITUNIX_API_KEY,
+        "sign": sign,
+        "nonce": nonce,
+        "timestamp": timestamp,
+        "Content-Type": "application/json"
+    }
+
+    try:
+        response = requests.post(BALANCE_URL, headers=headers, data=body)
+        data = response.json()
+        usdt_balance = 0.0
+        for asset in data.get("data", []):
+            if asset["currency"] == "USDT":
+                usdt_balance = float(asset["availableBalance"])
+        logging.info(f"💰 Balance disponible USDT: {usdt_balance}")
+        return usdt_balance
+    except Exception as e:
+        logging.error(f"❌ Error al obtener balance: {e}")
+        return 0.0
+
+
+# ==========================
+# Enviar orden MARKET
+# ==========================
+def place_order(symbol, side, trade_side="OPEN"):
+    """Crea una orden MARKET con todo el balance disponible."""
+    balance = get_balance()
+    if balance <= 0:
+        logging.error("❌ No hay balance disponible para operar.")
+        return None
+
+    # Definir tamaño aproximado
+    qty = round(balance / 10, 3)  # puedes ajustar la fórmula si deseas más precisión
+
     body_dict = {
         "symbol": symbol,
         "side": side,              # BUY o SELL
         "tradeSide": trade_side,   # OPEN o CLOSE
-        "orderType": order_type,   # MARKET o LIMIT
-        "qty": str(quantity),      # En formato string (Bitunix lo requiere)
-        "reduceOnly": False
+        "orderType": "MARKET",
+        "qty": str(qty),
+        "reduceOnly": trade_side == "CLOSE"
     }
 
-    # Convertir body a JSON
     body = json.dumps(body_dict, separators=(',', ':'))
-
-    # Generar firma
     sign, nonce, timestamp = generate_signature(BITUNIX_API_KEY, BITUNIX_SECRET_KEY, body)
 
     headers = {
@@ -85,30 +106,11 @@ def place_order(symbol, side, quantity, order_type="MARKET", trade_side="OPEN"):
         "Content-Type": "application/json"
     }
 
-    # ==========================
-    # Logs de depuración (clave para diagnosticar)
-    # ==========================
-    logging.info("🚀 Enviando orden a Bitunix...")
-    logging.info(f"URL: {BASE_URL}")
-    logging.info(f"Headers enviados: {headers}")
-    logging.info(f"Body enviado: {body}")
-
-    # ==========================
-    # Envío de la solicitud
-    # ==========================
     try:
         response = requests.post(BASE_URL, headers=headers, data=body)
         data = response.json()
-        logging.info(f"✅ Respuesta de Bitunix: {data}")
+        logging.info(f"✅ Orden enviada a Bitunix: {data}")
         return data
     except Exception as e:
         logging.error(f"❌ Error al enviar orden: {e}")
         return None
-
-
-# ==========================
-# Ejecución directa de prueba
-# ==========================
-if __name__ == "__main__":
-    logging.info("🧪 Prueba local de orden de mercado...")
-    result = place_order("LINKUSDT", "
