@@ -1,37 +1,64 @@
-from flask import Flask, request, jsonify
+from fastapi import FastAPI, Request, HTTPException
+from bitunix_client import place_order
 import logging
-from bitunix_client import place_order  # ✅ Importa la nueva función, no la clase
+from datetime import datetime
 
-app = Flask(__name__)
-logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
+# Configuración de logs
+logging.basicConfig(
+    filename=f"logs/trades_{datetime.now().date()}.log",
+    level=logging.INFO,
+    format="%(asctime)s - %(levelname)s - %(message)s"
+)
 
-@app.route("/webhook", methods=["POST"])
-def webhook():
+app = FastAPI(title="TradingView → Bitunix Bridge")
+
+SECURITY_TOKEN = "secreto123"
+
+# Mantener estado actual
+current_position = None  # Puede ser "LONG", "SHORT" o None
+
+
+@app.post("/webhook")
+async def tradingview_webhook(request: Request):
+    global current_position
     try:
-        data = request.get_json()
-        logging.info(f"📩 Webhook recibido: {data}")
+        data = await request.json()
+        token = data.get("token")
 
-        symbol = data.get("symbol")
-        side = data.get("side")
-        quantity = data.get("quantity", 0.1)
-        trade_side = data.get("tradeSide", "OPEN")
+        if token != SECURITY_TOKEN:
+            raise HTTPException(status_code=403, detail="Token inválido")
 
-        if not symbol or not side:
-            return jsonify({"error": "symbol y side son requeridos"}), 400
+        symbol = data.get("symbol", "LINKUSDT")
+        side = data.get("side", "").upper()
 
-        result = place_order(symbol, side, quantity, "MARKET", trade_side)
-        logging.info(f"✅ Respuesta de Bitunix: {result}")
+        if side not in ["BUY", "SELL", "CLOSE"]:
+            raise HTTPException(status_code=400, detail="Dirección no válida")
 
-        return jsonify(result), 200
+        logging.info(f"📩 Señal recibida: {symbol} → {side}")
+
+        # Lógica para abrir o cerrar operaciones
+        if side == "BUY":
+            if current_position == "SHORT":
+                place_order(symbol, "BUY", "CLOSE")
+            place_order(symbol, "BUY", "OPEN")
+            current_position = "LONG"
+
+        elif side == "SELL":
+            if current_position == "LONG":
+                place_order(symbol, "SELL", "CLOSE")
+            place_order(symbol, "SELL", "OPEN")
+            current_position = "SHORT"
+
+        elif side == "CLOSE":
+            if current_position == "LONG":
+                place_order(symbol, "SELL", "CLOSE")
+            elif current_position == "SHORT":
+                place_order(symbol, "BUY", "CLOSE")
+            current_position = None
+
+        logging.info(f"✅ Nueva posición: {current_position}")
+        return {"status": "success", "position": current_position}
 
     except Exception as e:
-        logging.error(f"❌ Error en webhook: {e}")
-        return jsonify({"error": str(e)}), 500
-
-
-@app.route("/", methods=["GET"])
-def home():
-    return "✅ Bridge entre TradingView y Bitunix funcionando correctamente"
-
-
-if __name__ == "__main__":
+        logging.error(f"❌ Error procesando webhook: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
